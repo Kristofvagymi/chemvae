@@ -1,8 +1,12 @@
 import tensorflow as tf
 import numpy as np
+from keras import backend as K
+from keras.layers import Input, Dense, LSTM, Lambda, RepeatVector
+from keras.models import Model
+from keras import objectives
 
 lstm_dim = 64
-max_smiles_len = 100;
+max_smiles_len = 100
 latent_dim = 64
 
 SMILES_CHARS = [' ',
@@ -13,7 +17,7 @@ SMILES_CHARS = [' ',
                   'R', 'S', 'T', 'V', 'X', 'Z',
                   '[', '\\', ']',
                   'a', 'b', 'c', 'e', 'g', 'i', 'l', 'n', 'o', 'p', 'r', 's',
-                  't', 'u']
+                  't', 'u','\n']
 
 input_dim = (max_smiles_len, len(SMILES_CHARS))
 output_dim = (max_smiles_len, len(SMILES_CHARS))
@@ -22,7 +26,7 @@ output_dim = (max_smiles_len, len(SMILES_CHARS))
 smi2index = dict((c, i) for i, c in enumerate(SMILES_CHARS))
 index2smi = dict((i, c) for i, c in enumerate(SMILES_CHARS))
 
-with open('smiles.txt') as f:
+with open('smallsmiles.txt') as f:
     smiles_as_list = f.readlines()
 
 
@@ -33,75 +37,55 @@ def smiles_to_onehot(smiles, max_len = 100):
     return onehot
 
 
-def smiles_decoder( onehot ):
+def smiles_decoder(onehot):
     smi = ''
     onehot = onehot.argmax( axis=-1 )
     for i in onehot:
         smi += index2smi[i]
     return smi
 
-
 decoded_rnn_size = 64
 encoded_rnn_size = 64
 batch_size = 1
 
 
-def create_network():
-    create_encoder()
-    create_decoder()
+input = Input(shape=input_dim)
+lstm = LSTM(latent_dim, activation='relu')(input)
+zmean = Dense(latent_dim, name='Z_mean_t')(lstm)
+zvar = Dense(latent_dim, name='Z_log_var_t', activation=tf.nn.softplus)(lstm)
+z = Lambda(lambda m: m[0] + m[1] * tf.random.normal(tf.shape(m[0])))([zmean, zvar])
+encoder = Model(input, z)
+
+latent_inputs = Input(shape=latent_dim, name='z_sampling')
+repeated = RepeatVector(100)(latent_inputs)
+x_2 = LSTM(57, activation='relu', return_sequences=True)(repeated)
+decoder = Model(latent_inputs, x_2)
+
+# h_decoded = RepeatVector(100)(z)
+# h_decoded = LSTM(57, return_sequences=True)(h_decoded)
+# vae_ = Model(input, h_decoded)
 
 
-def create_encoder():
-    with tf.variable_scope('encode'):
-        encode_cell = []
-        for i in range(encoded_rnn_size):
-            encode_cell.append(tf.nn.rnn_cell.LSTMCell(i))
-        global encoder
-        encoder = tf.nn.rnn_cell.MultiRNNCell(encode_cell)
-
-
-def create_decoder():
-    with tf.variable_scope('decode'):
-        decode_cell = []
-        for i in range(decoded_rnn_size):
-            decode_cell.append(tf.nn.rnn_cell.LSTMCell(i))
-        global decoder
-        decoder = tf.nn.rnn_cell.MultiRNNCell(decode_cell)
-
-
-def encode(X):
-    repr, state = tf.nn.dynamic_rnn(encoder, X, dtype=tf.float32, scope='encode', sequence_length=L)
-    mu = tf.keras.layers.Dense(latent_dim, activation="relu")(repr)
-    sg = tf.keras.layers.Dense(latent_dim, activation=tf.nn.softplus)(repr)
-    z =[i+(sg*np.random.uniform(-1.0, 1.0, size=[1])) for i in mu]
-    return z
-
-
-def decode(Z):
-    initial_decoded_state=decoder.zero_state(batch_size = batch_size, dtype=tf.float32)
-    Y,  output_decoded_state = tf.nn.dynamic_rnn(decoder, Z, dtype=tf.float32, scope='decode', sequence_length=L, initial_state=initial_decoded_state)
-
-    return Y
-
-
-def calculate_loss():
+def calculate_loss(x, x_decoded_mean):
+    xent_loss = objectives.mse(x, x_decoded_mean)
+    kl_loss = - 0.5 * K.mean(1 + zvar - K.square(zmean) - K.exp(zvar))
+    loss = xent_loss + kl_loss
+    return loss
 
 
 if __name__ == '__main__':
-    create_network()
-    X = tf.placeholder(tf.float32, shape=[max_smiles_len,len(SMILES_CHARS)])
-    L = tf.placeholder(tf.float32, [batch_size])
 
-    z = encode(X)
+    numpy_X = [smiles_to_onehot(x) for x in smiles_as_list]
+    numpy_X = np.array(numpy_X)
+    X = tf.convert_to_tensor(numpy_X, dtype=tf.float32)
 
-    calculate_loss()
+    # vae_.compile(loss=calculate_loss, optimizer='adam')
+    # vae_.fit(X, X, steps_per_epoch=100, epochs=1)
 
-    #output = decode(z)
+    outputs = decoder(encoder(X))
+    vae = Model(input, outputs)
+    vae.compile(loss=calculate_loss, optimizer='adam')
+    vae.fit(X, X, steps_per_epoch=100, epochs=5)
 
-    sess = tf.Session()
-    sess.run(tf.global_variables_initializer())
-    out = sess.run(z, feed_dict={X: smiles_to_onehot("C[C@@]1(C(=O)C=C(O1)C(=O)[O-])c2ccccc2"), L: batch_size})
-    print(out)
-    #latent_z = encoder(X)
-    #output = decoder(latent_z)
-
+    mu = vae.predict(X, steps=1)
+    print(mu)
