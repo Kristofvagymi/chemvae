@@ -1,10 +1,10 @@
 import tensorflow as tf
 import numpy as np
 from keras import backend as K
-from keras.layers import Input, Dense, LSTM, Lambda, RepeatVector
+from keras.layers import Input, Dense, LSTM, Lambda, Reshape
 from keras.models import Model
 from keras import objectives
-
+from keras.layers.core import RepeatVector
 lstm_dim = 64
 max_smiles_len = 100
 latent_dim = 64
@@ -54,9 +54,10 @@ lstm = LSTM(latent_dim, activation='relu')(input)
 zmean = Dense(latent_dim, name='Z_mean_t')(lstm)
 zvar = Dense(latent_dim, name='Z_log_var_t', activation=tf.nn.softplus)(lstm)
 z = Lambda(lambda m: m[0] + m[1] * tf.random.normal(tf.shape(m[0])))([zmean, zvar])
+# z_reshaped = Reshape((-1, latent_dim))(z)
 encoder = Model(input, z)
 
-latent_inputs = Input(shape=latent_dim, name='z_sampling')
+latent_inputs = Input(shape=(latent_dim,), name='z_sampling')
 repeated = RepeatVector(100)(latent_inputs)
 x_2 = LSTM(57, activation='relu', return_sequences=True)(repeated)
 decoder = Model(latent_inputs, x_2)
@@ -72,6 +73,8 @@ def calculate_loss(x, x_decoded_mean):
     loss = xent_loss + kl_loss
     return loss
 
+def zero_loss(X):
+    return 0
 
 if __name__ == '__main__':
 
@@ -82,10 +85,15 @@ if __name__ == '__main__':
     # vae_.compile(loss=calculate_loss, optimizer='adam')
     # vae_.fit(X, X, steps_per_epoch=100, epochs=1)
 
-    outputs = decoder(encoder(X))
-    vae = Model(input, outputs)
-    vae.compile(loss=calculate_loss, optimizer='adam')
-    vae.fit(X, X, steps_per_epoch=100, epochs=5)
+    # outputs = decoder(encoder(X))
+    outputs = encoder(X)
 
-    mu = vae.predict(X, steps=1)
-    print(mu)
+    vae = Model(input, outputs)
+#    vae.compile(loss=zero_loss, optimizer='adam')
+#    vae.predict(X, steps=1)
+
+    # vae.compile(loss=calculate_loss, optimizer='adam')
+    # vae.fit(X, X, steps_per_epoch=100, epochs=5)
+
+    # mu = vae.predict(X, steps=1)
+    # print(mu)
