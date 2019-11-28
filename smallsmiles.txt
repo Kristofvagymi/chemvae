@@ -54,4 +54,3 @@ CN1c2ccc(cc2[C@@H]3c4ccccc4CC[NH+]3CC1=O)Cl
 c1c2c(cc(c1C3CCCCC3)Cl)[C@H](CC2)C(=O)[O-]
 CC(C)(C)C(=O)[C@@H](n1ccnc1)Oc2ccc(cc2)Cl
 C[C@H](C[NH+](C)C)[C@@](C)(Cc1ccc(cc1)Cl)O
-Cc1c(cccc1Cl)Nc2c(cccn2)C(=O)OC[C@@H](CO)O
